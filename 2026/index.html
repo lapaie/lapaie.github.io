@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Générateur de bulletins de paie — Québec 2026</title>
+  <style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.5; color: #1a1a1a; background: #f5f5f5;
+  padding: 1rem; max-width: 900px; margin: 0 auto;
+}
+h1 { font-size: 1.4rem; margin-bottom: 1rem; }
+h2 { font-size: 1.1rem; margin-bottom: 0.75rem; }
+h3 { font-size: 0.95rem; margin: 1rem 0 0.4rem; }
+h4 { font-size: 0.85rem; margin: 0.5rem 0 0.25rem; color: #555; }
+fieldset { border: 1px solid #ddd; border-radius: 4px; padding: 1rem; margin-bottom: 1rem; }
+legend { font-weight: 600; padding: 0 0.25rem; }
+label { display: block; margin-bottom: 0.5rem; font-size: 0.85rem; font-weight: 500; }
+label input, label select { display: block; width: 100%; padding: 0.4rem; margin-top: 0.15rem; border: 1px solid #ccc; border-radius: 3px; font-size: 0.9rem; }
+input[readonly] { background: #f0f0f0; color: #555; cursor: default; }
+input.computed { background: #f0f8f0; border-color: #8bc88b; }
+input.computed:focus { border-color: #5a9e5a; }
+input.overridden { border-color: #e6a817; background: #fffdf0; }
+.override-badge { font-size: 0.7rem; color: #b8860b; margin-left: 0.3rem; cursor: help; }
+.calc-detail-btn { font-size: 0.75rem; color: #0055a4; cursor: pointer; margin-left: 0.3rem; text-decoration: underline; border: none; background: none; padding: 0; }
+.calc-detail-btn:hover { color: #003d7a; }
+.calc-reset-btn { display: none; font-size: 0.8rem; color: #666; cursor: pointer; margin-left: 0.2rem; border: none; background: none; padding: 0; line-height: 1; }
+.calc-reset-btn:hover { color: #0055a4; }
+.calc-reset-btn.visible { display: inline; }
+.calc-popover {
+  display: none; position: absolute; z-index: 100;
+  background: #fff; border: 1px solid #ccc; border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15); padding: 0.8rem;
+  max-width: 480px; min-width: 280px; font-size: 0.82rem; line-height: 1.6;
+  left: 0; top: 100%; margin-top: 0.3rem;
+}
+.calc-popover.visible { display: block; }
+.calc-popover p { margin: 0.4rem 0; }
+.calc-popover a { color: #0055a4; }
+.calc-popover .close-popover { float: right; border: none; background: none; font-size: 1rem; cursor: pointer; color: #666; }
+label { position: relative; }
+.flag { height: 0.75em; width: auto; vertical-align: baseline; margin-right: 0.2em; }
+.age-display { font-size: 0.78rem; color: #666; margin-top: 0.15rem; display: block; }
+.row { display: flex; gap: 1rem; flex-wrap: wrap; }
+.row label { flex: 1; min-width: 180px; }
+.btn-primary, .btn-secondary, .btn-danger, .btn-small {
+  padding: 0.4rem 0.8rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem;
+}
+.btn-primary { background: #0055a4; color: #fff; }
+.btn-secondary { background: #e0e0e0; color: #1a1a1a; }
+.btn-danger { background: #c0392b; color: #fff; }
+.btn-small { background: #f0f0f0; color: #333; font-size: 0.8rem; padding: 0.3rem 0.6rem; }
+.actions-bar { display: flex; gap: 0.5rem; margin: 1rem 0; flex-wrap: wrap; }
+.period-nav { display: flex; gap: 0.3rem; align-items: center; margin-top: 0.15rem; }
+.period-nav input { width: 60px; padding: 0.4rem; border: 1px solid #ccc; border-radius: 3px; font-size: 0.9rem; text-align: center; }
+input.invalid { border-color: #c0392b; background: #fdf0ef; }
+.invalid-msg { color: #c0392b; font-size: 0.75rem; margin-top: 0.1rem; }
+.accordion { border: 1px solid #ddd; border-radius: 4px; margin-bottom: 0.5rem; background: #fff; }
+.accordion-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0.6rem 0.8rem; cursor: pointer; user-select: none;
+}
+.accordion-header:hover { background: #f9f9f9; }
+.accordion-header .name { font-weight: 600; font-size: 0.9rem; }
+.accordion-body { display: none; padding: 0.8rem; border-top: 1px solid #eee; }
+.accordion.open .accordion-body { display: block; }
+.extra-row { display: flex; gap: 0.5rem; align-items: end; margin-bottom: 0.4rem; }
+.extra-row input { flex: 1; padding: 0.35rem; border: 1px solid #ccc; border-radius: 3px; font-size: 0.85rem; }
+.extra-row select { flex: 2; padding: 0.35rem; border: 1px solid #ccc; border-radius: 3px; font-size: 0.85rem; }
+.extra-row input:first-child { flex: 2; }
+.extra-row button { padding: 0.3rem 0.5rem; font-size: 0.8rem; background: #eee; border: 1px solid #ccc; border-radius: 3px; cursor: pointer; }
+.type-item { display: inline-flex; align-items: center; gap: 0.3rem; margin: 0.2rem 0.3rem 0.2rem 0; padding: 0.25rem 0.5rem; background: #e8f0fe; border: 1px solid #b8d4f0; border-radius: 3px; font-size: 0.82rem; }
+.type-item button { background: none; border: none; cursor: pointer; font-size: 0.9rem; color: #666; padding: 0; line-height: 1; }
+.ytd-summary { margin-top: 1rem; padding: 0.75rem; background: #f9fbff; border: 1px solid #d0dde8; border-radius: 4px; font-size: 0.82rem; }
+.ytd-summary table { width: 100%; border-collapse: collapse; }
+.ytd-summary td { padding: 0.2rem 0.4rem; }
+.ytd-summary td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.print-only { display: none; }
+@page { margin: 0; size: portrait; }
+@media print {
+  body > *:not(#print-stub) { display: none !important; }
+  .print-only { display: block !important; }
+  #print-stub > div { padding: 1cm; }
+}
+  </style>
+</head>
+<body>
+  <h1>Bulletins de paie — Québec 2026</h1>
+
+  <fieldset id="fs-employeur">
+    <legend>Employeur et période</legend>
+    <div class="row">
+      <label>Nom de l'employeur<input type="text" id="employeur-nom"></label>
+      <label>URL du logo<input type="url" id="employeur-logo" placeholder="https://exemple.com/logo.png"><img id="logo-preview" src="" alt="" style="display:none; max-height:40px; max-width:150px; margin-top:0.3rem;"></label>
+    </div>
+    <label>Adresse de l'employeur<input type="text" id="employeur-adresse" placeholder="123 rue Exemple, Montréal QC H1A 2B3"></label>
+    <div class="row">
+      <label>Téléphone<input type="tel" id="employeur-tel" placeholder="514-555-1234"></label>
+      <label>Courriel<input type="email" id="employeur-email" placeholder="info@exemple.com"></label>
+      <label>Site web<input type="url" id="employeur-web" placeholder="https://exemple.com"></label>
+    </div>
+    <div class="row">
+      <label>Fréquence
+        <select id="frequence">
+          <option value="hebdomadaire">Hebdomadaire</option>
+          <option value="bihebdomadaire" selected>Aux deux semaines</option>
+          <option value="mensuel">Mensuel</option>
+        </select>
+      </label>
+      <label>Période #
+        <div class="period-nav">
+          <button type="button" id="btn-period-prev" class="btn-small" aria-label="Période précédente">◀</button>
+          <input type="number" id="periode-num" min="1" step="1" value="1">
+          <button type="button" id="btn-period-next" class="btn-small" aria-label="Période suivante">▶</button>
+          <button type="button" id="btn-period-latest" class="btn-small" aria-label="Aller à la dernière période">▶▶</button>
+        </div>
+      </label>
+    </div>
+    <div class="row">
+      <label>Début de période<input type="text" id="periode-debut" readonly placeholder="yyyy-mm-dd"></label>
+      <label>Fin de période<input type="text" id="periode-fin" readonly placeholder="yyyy-mm-dd"></label>
+      <label>Date de paiement<input type="text" id="date-paiement" placeholder="yyyy-mm-dd" pattern="\d{4}-\d{2}-\d{2}"></label>
+    </div>
+    <div class="row">
+      <label>Taux FSS (%)<input type="number" step="0.0001" min="0" max="5" id="employeur-taux-fss" placeholder="1.65" value=""></label>
+      <label>Taux CNESST (%)<input type="number" step="0.0001" min="0" max="20" id="employeur-taux-cnesst" placeholder="1.20" value=""></label>
+    </div>
+  </fieldset>
+
+  <fieldset id="fs-types">
+    <legend>Types de postes, revenus et retenues supplémentaires</legend>
+    <div style="margin-bottom:0.75rem">
+      <h4>Postes</h4>
+      <div id="list-postes-types"></div>
+      <div class="extra-row" style="margin-top:0.4rem">
+        <input type="text" id="input-new-poste-type" placeholder="Nouveau titre de poste">
+        <button type="button" id="btn-add-poste-type" class="btn-small">+</button>
+      </div>
+    </div>
+    <div class="row">
+      <div style="flex:1;min-width:200px">
+        <h4>Revenus</h4>
+        <div id="list-revenus-types"></div>
+        <div class="extra-row" style="margin-top:0.4rem">
+          <input type="text" id="input-new-revenu-type" placeholder="Nouveau type de revenu">
+          <button type="button" id="btn-add-revenu-type" class="btn-small">+</button>
+        </div>
+      </div>
+      <div style="flex:1;min-width:200px">
+        <h4>Retenues</h4>
+        <div id="list-retenues-types"></div>
+        <div class="extra-row" style="margin-top:0.4rem">
+          <input type="text" id="input-new-retenue-type" placeholder="Nouveau type de retenue">
+          <button type="button" id="btn-add-retenue-type" class="btn-small">+</button>
+        </div>
+      </div>
+    </div>
+  </fieldset>
+
+  <h2>Employés</h2>
+  <div id="liste-employes"></div>
+  <div class="actions-bar">
+    <button id="btn-ajouter-employe" class="btn-primary" aria-label="Ajouter un employé">➕</button>
+    <button id="btn-print-all" class="btn-secondary" disabled aria-label="Imprimer tous les bulletins de la période">🖨️ Imprimer tout</button>
+  </div>
+
+  <div class="actions-bar">
+    <button id="btn-exporter" class="btn-secondary">📤 Exporter JSON</button>
+    <button id="btn-importer" class="btn-secondary">📥 Importer JSON</button>
+    <input type="file" id="input-import" accept=".json" hidden>
+  </div>
+
+  <div id="print-stub" class="print-only"></div>
+
+  <script src="qc.js"></script>
+  <script src="app.js"></script>
+  <script src="tests.js"></script>
+
+  <p style="margin-top:3rem;font-size:0.75rem;color:#999;text-align:center">
+    <a href="#" onclick="var r=runTests();alert(r.passed+' passés, '+r.failed+' échoués.'+(r.errors.length?'\n\n'+r.errors.join('\n'):''));return false">Exécuter les tests</a> ·
+    <a href="#" onclick="loadTestData();return false">Charger les données fictives</a> ·
+    <a href="#" onclick="if(confirm('Supprimer toutes les données?')){localStorage.removeItem('qc-paystubs-2026');location.reload();}return false">Réinitialiser</a>
+  </p>
+</body>
+</html>

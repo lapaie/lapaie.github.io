@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: Arial, sans-serif; font-size: 9pt; color: #000; }
+.stub-page-break { page-break-before: always; }
+.stub-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4mm; border-bottom: 2px solid #000; padding-bottom: 3mm; }
+.stub-top .employer { flex: 1; }
+.stub-top .employer img { max-height: 40px; max-width: 150px; margin-bottom: 2mm; }
+.stub-top .employer p { margin: 0; font-size: 9pt; }
+.stub-top .employer .emp-name { font-size: 11pt; font-weight: bold; }
+.stub-top .employee { flex: 1; text-align: right; }
+.stub-top .employee p { margin: 0; font-size: 9pt; }
+.stub-period { display: flex; justify-content: space-between; margin-bottom: 4mm; padding: 2mm 0; border-bottom: 1px solid #999; font-size: 9pt; }
+.stub-period span { display: inline-block; }
+.stub-grid { width: 100%; border-collapse: collapse; margin-bottom: 3mm; font-size: 8.5pt; }
+.stub-grid th, .stub-grid td { border: 0.5pt solid #666; padding: 1.5mm 2mm; }
+.stub-grid th { background: #e8e8e8; font-weight: bold; text-align: center; font-size: 8pt; }
+.stub-grid td { text-align: right; }
+.stub-grid td:first-child { text-align: left; }
+.stub-grid .section-header { background: #f4f4f4; font-weight: bold; text-align: left; }
+</style>
+</head>
+<body>
+<div class="stub-top">
+  <div class="employer">
+    {{logoHtml}}
+    <p class="emp-name">{{employeur}}</p>
+    <p>{{employeurAdresse}}</p>
+  </div>
+  <div class="employee">
+    <p><strong>{{empNom}}</strong></p>
+    <p>{{empAdresse}}</p>
+    <p>{{empPoste}}</p>
+    {{empNasLine}}
+    {{empTauxLine}}
+  </div>
+</div>
+<div class="stub-period">
+  <span><strong>Période:</strong> {{periodeNum}} — {{periodeDebut}} au {{periodeFin}}</span>
+  <span><strong>Date de paiement:</strong> {{datePaiement}}</span>
+</div>
+<table class="stub-grid">
+  <thead><tr><th>Revenus</th><th>Heures</th><th>Taux</th><th>Courant ($)</th><th>Cumulatif ($)</th></tr></thead>
+  <tbody>
+    <tr><td>Salaire brut</td><td>{{heuresReg}}</td><td>{{taux}}</td><td>{{brut}}</td><td>{{ytdBrut}}</td></tr>
+    {{heuresSupRow}}
+    {{revenusExtrasRows}}
+    {{pourboiresRow}}
+    <tr class="section-header"><td>TOTAL REVENUS</td><td></td><td></td><td>{{totalRevenus}}</td><td>{{ytdRevenus}}</td></tr>
+  </tbody>
+</table>
+<table class="stub-grid">
+  <thead><tr><th>Retenues</th><th>Courant ($)</th><th>Cumulatif ($)</th></tr></thead>
+  <tbody>
+    <tr><td>Impôt fédéral</td><td>{{impotCa}}</td><td>{{ytdImpotCa}}</td></tr>
+    <tr><td>Impôt provincial (Québec)</td><td>{{impotQc}}</td><td>{{ytdImpotQc}}</td></tr>
+    <tr><td>Régime de rentes du Québec (RRQ)</td><td>{{rrq}}</td><td>{{ytdRrq}}</td></tr>
+    <tr><td>Assurance-emploi (AE)</td><td>{{ae}}</td><td>{{ytdAe}}</td></tr>
+    <tr><td>Régime québécois d'assurance parentale (RQAP)</td><td>{{rqap}}</td><td>{{ytdRqap}}</td></tr>
+    {{retenuesExtrasRows}}
+    <tr class="section-header"><td>TOTAL RETENUES</td><td>{{totalRetenues}}</td><td>{{ytdRetenues}}</td></tr>
+  </tbody>
+</table>
+<table class="stub-grid">
+  <thead><tr><th>Salaire net</th><th>Courant ($)</th><th>Cumulatif ($)</th></tr></thead>
+  <tbody>
+    <tr class="section-header"><td>SALAIRE NET</td><td>{{net}}</td><td>{{ytdNet}}</td></tr>
+  </tbody>
+</table>
+</body>
+</html>
