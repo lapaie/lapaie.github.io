@@ -303,7 +303,13 @@
     var result = QC.calculerRRQ({
       salaireBrut: grossPay,
       frequence: data.frequence,
-      cumulBrutAnnuel: QC.cumulBrutEmploye(emp, periodeNum())
+      cumulBrutAnnuel: QC.cumulBrutEmploye(emp, periodeNum()),
+      cumulCotisationsRRQ1: QC.cumulCotisationsRRQ(emp, periodeNum()).rrq1,
+      cumulCotisationsRRQ2: QC.cumulCotisationsRRQ(emp, periodeNum()).rrq2,
+      typeEmploi: emp.typeEmploi || "continu",
+      heures: Number(p.heuresReg || 0),
+      jours: Number(p.heuresReg || 0),
+      moisCotisablesRRQ: Number(emp.moisCotisablesRRQ || 12)
     });
 
     var employeeField = acc.querySelector('[data-pay="rrq"]');
@@ -370,6 +376,28 @@
       if (!p.cnesstManuel) {
         field.value = fmt(result.employeur);
         p.cnesst = fmt(result.employeur);
+        field.classList.add("computed");
+        field.classList.remove("overridden");
+      } else {
+        field.classList.add("overridden");
+        field.classList.remove("computed");
+      }
+    }
+    return result;
+  }
+
+  function computeAndFillCNT(acc, emp) {
+    var p = getPeriod(emp);
+    var grossPay = Number(p.brut || 0);
+    if (grossPay === 0) return null;
+
+    var result = QC.calculerCNT({ salaireBrut: grossPay, cumulBrutAnnuel: QC.cumulBrutEmploye(emp, periodeNum()) });
+
+    var field = acc.querySelector('[data-pay="cnt"]');
+    if (field) {
+      if (!p.cntManuel) {
+        field.value = fmt(result.employeur);
+        p.cnt = fmt(result.employeur);
         field.classList.add("computed");
         field.classList.remove("overridden");
       } else {
@@ -647,7 +675,7 @@
   document.getElementById("btn-ajouter-employe").addEventListener("click", function () {
     data.employees.push({
       id: nextId(), nom: "", poste: "", adresse: "", telephone: "", email: "", nas: "", taux: "16.60",
-      dateNaissance: "", pourboire: "non", tauxSup: "1.5",
+      dateNaissance: "", pourboire: "non", tauxSup: "1.5", typeEmploi: "continu", moisCotisablesRRQ: "12",
       periods: {}
     });
     save(data);
@@ -660,7 +688,7 @@
   });
 
   function emptyPeriod() {
-    return { heuresReg: "", heuresSup: "", brut: "", impotCa: "", impotQc: "", rrq: "", ae: "", rqap: "", rrqEmp: "", aeEmp: "", rqapEmp: "", fss: "", cnesst: "", pourboires: "", revenusExtras: [], retenuesExtras: [], brutManuel: false, rqapManuel: false, rqapEmpManuel: false, aeManuel: false, aeEmpManuel: false, rrqManuel: false, rrqEmpManuel: false, fssManuel: false, cnesstManuel: false, impotCaManuel: false, impotQcManuel: false };
+    return { heuresReg: "", heuresSup: "", brut: "", gratification: "", impotCa: "", impotQc: "", rrq: "", ae: "", rqap: "", rrqEmp: "", aeEmp: "", rqapEmp: "", fss: "", cnesst: "", cnt: "", pourboires: "", revenusExtras: [], retenuesExtras: [], brutManuel: false, rqapManuel: false, rqapEmpManuel: false, aeManuel: false, aeEmpManuel: false, rrqManuel: false, rrqEmpManuel: false, fssManuel: false, cnesstManuel: false, cntManuel: false, impotCaManuel: false, impotQcManuel: false };
   }
 
   function getPeriod(emp) {
@@ -781,6 +809,10 @@
           '<label>Assujetti au RQAP<select data-field="assujettiRQAP"><option value="oui"' + (emp.assujettiRQAP !== "non" ? " selected" : "") + '>Oui</option><option value="non"' + (emp.assujettiRQAP === "non" ? " selected" : "") + '>Non</option></select></label>' +
         '</div>' +
         '<div class="row">' +
+          '<label>Type d\'emploi (RRQ)<select data-field="typeEmploi"><option value="continu"' + ((emp.typeEmploi || "continu") === "continu" ? " selected" : "") + '>Continu</option><option value="discontinuHeure"' + (emp.typeEmploi === "discontinuHeure" ? " selected" : "") + '>Discontinu (à l\'heure)</option><option value="discontinuJour"' + (emp.typeEmploi === "discontinuJour" ? " selected" : "") + '>Discontinu (à la journée)</option></select></label>' +
+          '<label>Mois cotisables RRQ<input type="number" step="1" min="0" max="12" data-field="moisCotisablesRRQ" value="' + esc(emp.moisCotisablesRRQ || "12") + '"></label>' +
+        '</div>' +
+        '<div class="row">' +
           '<label>Exemption de retenues d\'impôt<select data-field="exemptionImpot"><option value="non"' + ((emp.exemptionImpot || "non") === "non" ? " selected" : "") + '>Non</option><option value="federal"' + (emp.exemptionImpot === "federal" ? " selected" : "") + '>Fédéral seulement</option><option value="provincial"' + (emp.exemptionImpot === "provincial" ? " selected" : "") + '>Provincial seulement</option><option value="les-deux"' + (emp.exemptionImpot === "les-deux" ? " selected" : "") + '>Les deux</option></select></label>' +
           '<label><img class="flag" src="../img/ca.svg" alt="CA"> Crédit personnel fédéral ($)<input type="number" step="0.01" min="0" data-field="creditFederal" value="' + esc(emp.creditFederal || "") + '" placeholder="' + QC.IMPOT_FED.montantPersonnel + '"></label>' +
           '<label><img class="flag" src="../img/qc.svg" alt="QC"> Crédit personnel provincial ($)<input type="number" step="0.01" min="0" data-field="creditProvincial" value="' + esc(emp.creditProvincial || "") + '" placeholder="' + QC.IMPOT_QC.montantPersonnel + '"></label>' +
@@ -795,6 +827,7 @@
       '</fieldset>' +
       '<fieldset><legend>Revenus</legend>' +
         '<label>Salaire brut ($)<input type="number" step="0.01" min="0" data-pay="brut" value="' + esc(p.brut || "") + '"><button type="button" class="calc-reset-btn' + (p.brutManuel ? " visible" : "") + '" data-reset="brut" aria-label="Recalculer salaire brut">↺</button></label>' +
+        '<label>Gratification / bonus ($)<input type="number" step="0.01" min="0" data-pay="gratification" value="' + esc(p.gratification || "") + '"></label>' +
         '<h4>Autres revenus</h4>' +
         '<div class="extras-revenus">' + buildExtras(p.revenusExtras, data.revenusTypes) + '</div>' +
         '<button type="button" class="btn-small btn-add-revenu" aria-label="Ajouter un revenu">➕</button>' +
@@ -815,6 +848,7 @@
           '<label><img class="flag" src="../img/qc.svg" alt="QC"> Régime québécois d\'assurance parentale (RQAP) ($)<input type="number" step="0.01" min="0" data-pay="rqapEmp" value="' + esc(p.rqapEmp || "") + '"><button type="button" class="calc-detail-btn" data-popover="rqapEmp" aria-label="Détails du calcul RQAP employeur">détails</button><button type="button" class="calc-reset-btn' + (p.rqapEmpManuel ? " visible" : "") + '" data-reset="rqapEmp" aria-label="Recalculer RQAP employeur">↺</button><div class="calc-popover" data-popover-target="rqapEmp"></div></label>' +
           '<label><img class="flag" src="../img/qc.svg" alt="QC"> Fonds des services de santé (FSS) ($)<input type="number" step="0.01" min="0" data-pay="fss" value="' + esc(p.fss || "") + '"><button type="button" class="calc-detail-btn" data-popover="fss" aria-label="Détails du calcul FSS">détails</button><button type="button" class="calc-reset-btn' + (p.fssManuel ? " visible" : "") + '" data-reset="fss" aria-label="Recalculer FSS">↺</button><div class="calc-popover" data-popover-target="fss"></div></label>' +
           '<label><img class="flag" src="../img/qc.svg" alt="QC"> Commission des normes, de l\'équité, de la santé et de la sécurité du travail (CNESST) ($)<input type="number" step="0.01" min="0" data-pay="cnesst" value="' + esc(p.cnesst || "") + '"><button type="button" class="calc-detail-btn" data-popover="cnesst" aria-label="Détails du calcul CNESST">détails</button><button type="button" class="calc-reset-btn' + (p.cnesstManuel ? " visible" : "") + '" data-reset="cnesst" aria-label="Recalculer CNESST">↺</button><div class="calc-popover" data-popover-target="cnesst"></div></label>' +
+          '<label><img class="flag" src="../img/qc.svg" alt="QC"> Cotisation relative aux normes du travail (CNT) ($)<input type="number" step="0.01" min="0" data-pay="cnt" value="' + esc(p.cnt || "") + '"><button type="button" class="calc-detail-btn" data-popover="cnt" aria-label="Détails du calcul CNT">détails</button><button type="button" class="calc-reset-btn' + (p.cntManuel ? " visible" : "") + '" data-reset="cnt" aria-label="Recalculer CNT">↺</button><div class="calc-popover" data-popover-target="cnt"></div></label>' +
       '</fieldset>' +
       '<fieldset class="fs-pourboires" ' + (emp.pourboire !== "oui" ? 'style="display:none"' : "") + '><legend>Pourboires</legend>' +
         '<label>Pourboires déclarés ($)<input type="number" step="0.01" min="0" data-pay="pourboires" value="' + esc(p.pourboires || "") + '"></label>' +
@@ -883,6 +917,30 @@
       autoSave();
     });
 
+    var typeEmploiSelect = body.querySelector('[data-field="typeEmploi"]');
+    var heuresRegLabel = body.querySelector('[data-pay="heuresReg"]').closest("label");
+    var heuresSupLabel = body.querySelector('[data-pay="heuresSup"]').closest("label");
+    var tauxSupLabel = body.querySelector('[data-field="tauxSup"]').closest("label");
+    function updateHeuresLabel() {
+      var isDiscontinu = typeEmploiSelect.value !== "continu";
+      var lbl = typeEmploiSelect.value === "discontinuJour" ? "Jours travaillés" : "Heures régulières";
+      heuresRegLabel.childNodes[0].textContent = lbl;
+      heuresSupLabel.style.display = isDiscontinu ? "none" : "";
+      tauxSupLabel.style.display = isDiscontinu ? "none" : "";
+    }
+    updateHeuresLabel();
+    typeEmploiSelect.addEventListener("change", function () {
+      updateHeuresLabel();
+      autoSave();
+      triggerDownstream();
+    });
+
+    var moisCotisablesInput = body.querySelector('[data-field="moisCotisablesRRQ"]');
+    moisCotisablesInput.addEventListener("input", function () {
+      autoSave();
+      triggerDownstream();
+    });
+
     body.querySelector(".btn-add-revenu").addEventListener("click", function () { addExtraRow(body.querySelector(".extras-revenus"), data.revenusTypes); });
     body.querySelector(".btn-add-retenue").addEventListener("click", function () { addExtraRow(body.querySelector(".extras-retenues"), data.retenuesTypes); });
     body.querySelectorAll(".extra-row button").forEach(function (btn) { btn.addEventListener("click", function () { btn.parentElement.remove(); autoSave(); }); });
@@ -900,6 +958,7 @@
       computeAndFillRRQ(acc, emp);
       computeAndFillFSS(acc, emp);
       computeAndFillCNESST(acc, emp);
+      computeAndFillCNT(acc, emp);
       computeAndFillImpotCa(acc, emp);
       computeAndFillImpotQc(acc, emp);
     }
@@ -983,6 +1042,7 @@
     bindOverride("rrqEmp", "rrqEmpManuel", "rrqEmp", computeAndFillRRQ);
     bindOverride("fss", "fssManuel", "fss", computeAndFillFSS);
     bindOverride("cnesst", "cnesstManuel", "cnesst", computeAndFillCNESST);
+    bindOverride("cnt", "cntManuel", "cnt", computeAndFillCNT);
     bindOverride("impotCa", "impotCaManuel", "impotCa", computeAndFillImpotCa);
     bindOverride("impotQc", "impotQcManuel", "impotQc", computeAndFillImpotQc);
 
@@ -1033,7 +1093,7 @@
           popoverEl.querySelector(".close-popover").addEventListener("click", function () { popoverEl.classList.remove("visible"); });
           return;
         }
-        var params = { salaireBrut: grossPay, frequence: data.frequence, cumulBrutAnnuel: QC.cumulBrutEmploye(emp, periodeNum()) };
+        var params = { salaireBrut: grossPay, frequence: data.frequence, cumulBrutAnnuel: QC.cumulBrutEmploye(emp, periodeNum()), cumulCotisationsRRQ1: QC.cumulCotisationsRRQ(emp, periodeNum()).rrq1, cumulCotisationsRRQ2: QC.cumulCotisationsRRQ(emp, periodeNum()).rrq2, typeEmploi: emp.typeEmploi || "continu", heures: Number(p.heuresReg || 0), jours: Number(p.heuresReg || 0), moisCotisablesRRQ: Number(emp.moisCotisablesRRQ || 12) };
         var result;
         if (target === "rqap" || target === "rqapEmp") {
           result = QC.calculerRQAP(params);
@@ -1050,6 +1110,8 @@
           result = QC.calculerFSS({ salaireBrut: grossPay, tauxFSS: data.tauxFSS });
         } else if (target === "cnesst") {
           result = QC.calculerCNESST({ salaireBrut: grossPay, tauxCNESST: data.tauxCNESST });
+        } else if (target === "cnt") {
+          result = QC.calculerCNT({ salaireBrut: grossPay, cumulBrutAnnuel: QC.cumulBrutEmploye(emp, periodeNum()) });
         } else if (target === "impotCa") {
           result = QC.calculerImpotFederal({ salaireBrut: grossPay, frequence: data.frequence, cotisationRRQ: Number(p.rrq || 0), cotisationAE: Number(p.ae || 0), cotisationRQAP: Number(p.rqap || 0), creditPersonnel: emp.creditFederal });
         } else if (target === "impotQc") {

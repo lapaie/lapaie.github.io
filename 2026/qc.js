@@ -109,6 +109,9 @@ var QC = (function () {
   // Source: Gouvernement du Canada — Taux de cotisation à l'AE
   // https://www.canada.ca/fr/agence-revenu/services/impot/entreprises/sujets/retenues-paie/retenues-paie-cotisations/assurance-emploi-ae/taux-cotisation-a-ae-maximums.html
   //
+  // Voir aussi: T4001 Guide de l'employeur, chapitre 3
+  // https://www.canada.ca/fr/agence-revenu/services/formulaires-publications/publications/t4001/guide-employeur-retenues-paie-versements.html
+  //
   // Le Québec bénéficie d'un taux réduit parce que le RQAP couvre la portion
   // congé parental/maternité de l'AE.
   // ═══════════════════════════════════════════════════════════════════════════
@@ -200,20 +203,40 @@ var QC = (function () {
     source: "https://www.retraitequebec.gouv.qc.ca/fr/employeur/role_rrq/Pages/role_rrq.aspx"
   };
 
-  function calculerRRQ({ salaireBrut, frequence, cumulBrutAnnuel = 0 }) {
+  function calculerRRQ({ salaireBrut, frequence, cumulBrutAnnuel = 0, cumulCotisationsRRQ1 = 0, cumulCotisationsRRQ2 = 0, typeEmploi = "continu", heures = 0, jours = 0, moisCotisablesRRQ = 12 }) {
     var etapes = [];
     var nombrePeriodes = frequence === "hebdomadaire" ? 52 : frequence === "bihebdomadaire" ? 26 : 12;
     var nomFrequence = frequence === "hebdomadaire" ? "semaine" : frequence === "bihebdomadaire" ? "2 semaines" : "mois";
+
+    var maxRRQ1 = RRQ.cotisationMaxRRQ1;
+    var maxRRQ2 = RRQ.cotisationMaxRRQ2;
+    if (moisCotisablesRRQ < 12) {
+      maxRRQ1 = Math.round(RRQ.cotisationMaxRRQ1 * moisCotisablesRRQ / 12 * 100) / 100;
+      maxRRQ2 = Math.round(RRQ.cotisationMaxRRQ2 * moisCotisablesRRQ / 12 * 100) / 100;
+    }
 
     etapes.push({
       texte: `[Calcul du RRQ — Retraite Québec](${RRQ.source})\n` +
         `Le RRQ est calculé à partir du salaire brut par période de paie. Il comporte deux paliers de cotisation.`
     });
 
-    var exemptionParPeriode = RRQ.exemptionBase / nombrePeriodes;
-    etapes.push({
-      texte: `Il y a une exemption annuelle de ${RRQ.exemptionBase.toLocaleString("fr-CA")} $ qui est distribuée également entre les ${nombrePeriodes} périodes de paie (paie aux ${nomFrequence}) : ${fmt(exemptionParPeriode)} $ par période.`
-    });
+    var exemptionParPeriode;
+    if (typeEmploi === "discontinuHeure") {
+      exemptionParPeriode = 1.75 * heures;
+      etapes.push({
+        texte: `Emploi discontinu payé à l'heure : exemption de 1,75 $ × ${heures} heures = ${fmt(exemptionParPeriode)} $ (3 500 $ ÷ 2 000 h).`
+      });
+    } else if (typeEmploi === "discontinuJour") {
+      exemptionParPeriode = 14.58 * jours;
+      etapes.push({
+        texte: `Emploi discontinu payé à la journée : exemption de 14,58 $ × ${jours} jours = ${fmt(exemptionParPeriode)} $ (3 500 $ ÷ 240 j).`
+      });
+    } else {
+      exemptionParPeriode = RRQ.exemptionBase / nombrePeriodes;
+      etapes.push({
+        texte: `Il y a une exemption annuelle de ${RRQ.exemptionBase.toLocaleString("fr-CA")} $ qui est distribuée également entre les ${nombrePeriodes} périodes de paie (paie aux ${nomFrequence}) : ${fmt(exemptionParPeriode)} $ par période.`
+      });
+    }
 
     var brutApresExemption = Math.max(0, salaireBrut - exemptionParPeriode);
     etapes.push({
@@ -233,9 +256,18 @@ var QC = (function () {
     }
 
     var cotisationRRQ1 = cotisableRRQ1 * RRQ.tauxRRQ1;
-    etapes.push({
-      texte: `Cotisation RRQ1 (base + 1er supplément) : ${fmt(cotisableRRQ1)} × ${(RRQ.tauxRRQ1 * 100).toFixed(1)} % = ${fmt(cotisationRRQ1)} $.`
-    });
+
+    var resteMaxRRQ1 = Math.max(0, maxRRQ1 - cumulCotisationsRRQ1);
+    if (cotisationRRQ1 > resteMaxRRQ1) {
+      etapes.push({
+        texte: `Cotisation RRQ1 calculée : ${fmt(cotisationRRQ1)} $, mais le maximum annuel est de ${fmt(maxRRQ1)} $ et les cotisations cumulées sont de ${fmt(cumulCotisationsRRQ1)} $. Plafonnée à ${fmt(resteMaxRRQ1)} $.`
+      });
+      cotisationRRQ1 = resteMaxRRQ1;
+    } else {
+      etapes.push({
+        texte: `Cotisation RRQ1 (base + 1er supplément) : ${fmt(cotisableRRQ1)} × ${(RRQ.tauxRRQ1 * 100).toFixed(1)} % = ${fmt(cotisationRRQ1)} $.`
+      });
+    }
 
     var gainsMaxRRQ2 = RRQ.mgap - RRQ.mga;
     var cumulRRQ2 = Math.max(0, Math.min(cumulBrutAnnuel, RRQ.mgap) - RRQ.mga);
@@ -246,10 +278,18 @@ var QC = (function () {
     var cotisationRRQ2 = 0;
     if (cotisableRRQ2 > 0) {
       cotisationRRQ2 = cotisableRRQ2 * RRQ.tauxRRQ2;
-      etapes.push({
-        texte: `RRQ2 (2e supplément) s'applique sur les gains entre ${RRQ.mga.toLocaleString("fr-CA")} $ (MGA) et ${RRQ.mgap.toLocaleString("fr-CA")} $ (MGAP). ` +
-          `Portion cotisable cette période : ${fmt(cotisableRRQ2)} × ${(RRQ.tauxRRQ2 * 100).toFixed(0)} % = ${fmt(cotisationRRQ2)} $.`
-      });
+      var resteMaxRRQ2 = Math.max(0, maxRRQ2 - cumulCotisationsRRQ2);
+      if (cotisationRRQ2 > resteMaxRRQ2) {
+        etapes.push({
+          texte: `RRQ2 calculée : ${fmt(cotisationRRQ2)} $, mais le maximum annuel est de ${fmt(maxRRQ2)} $ et les cotisations cumulées sont de ${fmt(cumulCotisationsRRQ2)} $. Plafonnée à ${fmt(resteMaxRRQ2)} $.`
+        });
+        cotisationRRQ2 = resteMaxRRQ2;
+      } else {
+        etapes.push({
+          texte: `RRQ2 (2e supplément) s'applique sur les gains entre ${RRQ.mga.toLocaleString("fr-CA")} $ (MGA) et ${RRQ.mgap.toLocaleString("fr-CA")} $ (MGAP). ` +
+            `Portion cotisable cette période : ${fmt(cotisableRRQ2)} × ${(RRQ.tauxRRQ2 * 100).toFixed(0)} % = ${fmt(cotisationRRQ2)} $.`
+        });
+      }
     } else if (cumulBrutAnnuel + salaireBrut > RRQ.mga) {
       etapes.push({
         texte: `RRQ2 : le plafond du 2e palier (${RRQ.mgap.toLocaleString("fr-CA")} $) est déjà atteint. Aucune cotisation supplémentaire.`
@@ -257,6 +297,14 @@ var QC = (function () {
     }
 
     var totalEmploye = cotisationRRQ1 + cotisationRRQ2;
+
+    if (moisCotisablesRRQ < 12) {
+      var maxTotal = maxRRQ1 + maxRRQ2;
+      etapes.push({
+        texte: `Cotisation maximale proratisée (${moisCotisablesRRQ} mois sur 12) : RRQ1 ${fmt(maxRRQ1)} $ + RRQ2 ${fmt(maxRRQ2)} $ = ${fmt(maxTotal)} $.`
+      });
+    }
+
     var totalEmployeur = totalEmploye;
 
     etapes.push({
@@ -354,10 +402,68 @@ var QC = (function () {
 
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // Module de calcul — Cotisation relative aux normes du travail (CNT)
+  //
+  // Source: Revenu Québec — Cotisation relative aux normes du travail
+  // https://www.revenuquebec.ca/fr/entreprises/retenues-a-la-source-et-cotisations-de-lemployeur/calcul-des-retenues-et-des-cotisations/cotisation-relative-aux-normes-du-travail/
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  var CNT = {
+    annee: 2026,
+    taux: 0.0006,
+    remunerationMax: 103000,
+    source: "https://www.revenuquebec.ca/fr/entreprises/retenues-a-la-source-et-cotisations-de-lemployeur/calcul-des-retenues-et-des-cotisations/cotisation-relative-aux-normes-du-travail/"
+  };
+
+  function calculerCNT({ salaireBrut, cumulBrutAnnuel = 0 }) {
+    var etapes = [];
+
+    etapes.push({
+      texte: `[Cotisation relative aux normes du travail](${CNT.source})\n` +
+        `Cotisation de l'employeur de ${(CNT.taux * 100).toFixed(2)} % sur la rémunération assujettie, jusqu'à un maximum de ${CNT.remunerationMax.toLocaleString("fr-CA")} $ par employé pour l'année.`
+    });
+
+    var resteAssujetti = Math.max(0, CNT.remunerationMax - Math.min(cumulBrutAnnuel, CNT.remunerationMax));
+    var salaireAssujetti = Math.min(salaireBrut, resteAssujetti);
+
+    if (cumulBrutAnnuel > 0) {
+      etapes.push({
+        texte: `Rémunération cumulée : ${fmt(cumulBrutAnnuel)} $. Il reste ${fmt(resteAssujetti)} $ de rémunération assujettie.`
+      });
+    }
+
+    var cotisation = salaireAssujetti * CNT.taux;
+    etapes.push({
+      texte: `Cotisation : ${fmt(salaireAssujetti)} × ${(CNT.taux * 100).toFixed(2)} % = ${fmt(cotisation)} $.`
+    });
+
+    etapes.push({
+      texte: `**Résultat** : employeur ${fmt(cotisation)} $.`
+    });
+
+    return {
+      employeur: Math.round(cotisation * 100) / 100,
+      etapes
+    };
+  }
+
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // Module de calcul — Impôt fédéral (retenue à la source)
   //
   // Source: Agence du revenu du Canada — T4127 Formules pour le calcul
   // https://www.canada.ca/fr/agence-revenu/services/formulaires-publications/retenues-paie/t4127-formules-calcul-retenues-paie/t4127-jan/t4127-jan-formules-retenues-paie-programmes-informatiques.html
+  //
+  // Voir aussi: T4001 Guide de l'employeur — Les retenues sur la paie et les versements
+  // https://www.canada.ca/fr/agence-revenu/services/formulaires-publications/publications/t4001/guide-employeur-retenues-paie-versements.html
+  //
+  // Méthode T4127:
+  //   - Seules les cotisations supplémentaires au RPC (F5A = 1re supp., F2 = 2e supp.)
+  //     sont déduites du revenu annualisé.
+  //   - Les cotisations de base (RPC/RRQ + AE + RQAP) sont traitées comme crédits
+  //     non remboursables: K2 = 14 % × montant annualisé.
+  //   - Le crédit canadien pour emploi (K3 = 14 % × min(revenu, 1 368 $)) s'applique.
+  //   - L'abattement du Québec (16,5 %) réduit l'impôt pour les employés au Québec.
   // ═══════════════════════════════════════════════════════════════════════════
 
   var IMPOT_FED = {
@@ -372,6 +478,7 @@ var QC = (function () {
     montantPersonnel: 16452,
     tauxCredit: 0.14,
     abattementQuebec: 0.165,
+    creditEmploiMax: 1368,
     source: "https://www.canada.ca/fr/agence-revenu/services/formulaires-publications/retenues-paie/t4127-formules-calcul-retenues-paie/t4127-jan/t4127-jan-formules-retenues-paie-programmes-informatiques.html"
   };
 
@@ -382,7 +489,7 @@ var QC = (function () {
 
     etapes.push({
       texte: `[Calcul de l'impôt fédéral — T4127](${IMPOT_FED.source})\n` +
-        `Méthode de retenue à la source : annualiser le revenu, appliquer les paliers progressifs, soustraire les crédits, appliquer l'abattement du Québec (${(IMPOT_FED.abattementQuebec * 100).toFixed(1)} %), puis désannualiser.`
+        `Méthode de retenue à la source : annualiser le revenu, déduire les cotisations supplémentaires au RRQ (F5A + F2), appliquer les paliers progressifs, soustraire les crédits (K1 personnel + K2 cotisations + K3 emploi), appliquer l'abattement du Québec (${(IMPOT_FED.abattementQuebec * 100).toFixed(1)} %), puis désannualiser.`
     });
 
     var revenuAnnuel = salaireBrut * nombrePeriodes;
@@ -390,14 +497,15 @@ var QC = (function () {
       texte: `Revenu annualisé : ${fmt(salaireBrut)} × ${nombrePeriodes} périodes = ${fmt(revenuAnnuel)} $.`
     });
 
-    var deductionsAnnuelles = (cotisationRRQ + cotisationAE + cotisationRQAP) * nombrePeriodes;
+    var cotisationSuppRRQ = cotisationRRQ * (1 / 6.30);
+    var deductionF5A = cotisationSuppRRQ * nombrePeriodes;
     etapes.push({
-      texte: `Déductions annualisées (RRQ ${fmt(cotisationRRQ)} + AE ${fmt(cotisationAE)} + RQAP ${fmt(cotisationRQAP)}) × ${nombrePeriodes} = ${fmt(deductionsAnnuelles)} $.`
+      texte: `Déduction F5A (1re cotisation supplémentaire au RRQ) : ${fmt(cotisationRRQ)} × (1 % ÷ 6,30 %) × ${nombrePeriodes} = ${fmt(deductionF5A)} $.`
     });
 
-    var revenuImposable = Math.max(0, revenuAnnuel - deductionsAnnuelles);
+    var revenuImposable = Math.max(0, revenuAnnuel - deductionF5A);
     etapes.push({
-      texte: `Revenu imposable annuel : ${fmt(revenuAnnuel)} − ${fmt(deductionsAnnuelles)} = ${fmt(revenuImposable)} $.`
+      texte: `Revenu imposable annuel : ${fmt(revenuAnnuel)} − ${fmt(deductionF5A)} = ${fmt(revenuImposable)} $.`
     });
 
     var impotBrut = 0;
@@ -418,10 +526,18 @@ var QC = (function () {
       texte: `Impôt brut par paliers :\n${detailsPaliers.join("\n")}\nTotal : ${fmt(impotBrut)} $.`
     });
 
-    var creditImpot = credit * IMPOT_FED.tauxCredit;
-    var impotApresCredit = Math.max(0, impotBrut - creditImpot);
+    var K1 = credit * IMPOT_FED.tauxCredit;
+    var cotisationBaseRRQ = cotisationRRQ - cotisationSuppRRQ;
+    var cotisationsBaseAnnuelles = (cotisationBaseRRQ + cotisationAE + cotisationRQAP) * nombrePeriodes;
+    var K2 = cotisationsBaseAnnuelles * IMPOT_FED.tauxCredit;
+    var K3 = Math.min(revenuAnnuel, IMPOT_FED.creditEmploiMax) * IMPOT_FED.tauxCredit;
+    var totalCredits = K1 + K2 + K3;
+    var impotApresCredit = Math.max(0, impotBrut - totalCredits);
     etapes.push({
-      texte: `Crédit personnel : ${fmt(credit)} × ${(IMPOT_FED.tauxCredit * 100).toFixed(0)} % = ${fmt(creditImpot)} $.\nImpôt après crédit : ${fmt(impotBrut)} − ${fmt(creditImpot)} = ${fmt(impotApresCredit)} $.`
+      texte: `K1 (crédit personnel) : ${fmt(credit)} × ${(IMPOT_FED.tauxCredit * 100).toFixed(0)} % = ${fmt(K1)} $.\n` +
+        `K2 (crédit cotisations RRQ base + AE + RQAP) : ${fmt(cotisationsBaseAnnuelles)} × ${(IMPOT_FED.tauxCredit * 100).toFixed(0)} % = ${fmt(K2)} $.\n` +
+        `K3 (crédit canadien pour emploi) : min(${fmt(revenuAnnuel)}, ${IMPOT_FED.creditEmploiMax}) × ${(IMPOT_FED.tauxCredit * 100).toFixed(0)} % = ${fmt(K3)} $.\n` +
+        `Total crédits : ${fmt(totalCredits)} $.\nImpôt après crédits : ${fmt(impotBrut)} − ${fmt(totalCredits)} = ${fmt(impotApresCredit)} $.`
     });
 
     var abattement = impotApresCredit * IMPOT_FED.abattementQuebec;
@@ -470,7 +586,7 @@ var QC = (function () {
 
     etapes.push({
       texte: `[Calcul de l'impôt du Québec — TP-1015.F](${IMPOT_QC.source})\n` +
-        `Méthode de retenue à la source : annualiser le revenu, soustraire les déductions (cotisations + déduction pour travailleur), appliquer les paliers progressifs, soustraire les crédits personnels, puis désannualiser.`
+        `Méthode de retenue à la source : annualiser le revenu, soustraire les déductions (cotisations supplémentaires au RRQ + déduction pour travailleur), appliquer les paliers progressifs, soustraire les crédits (personnel + cotisations de base), puis désannualiser.`
     });
 
     var revenuAnnuel = salaireBrut * nombrePeriodes;
@@ -478,11 +594,15 @@ var QC = (function () {
       texte: `Revenu annualisé : ${fmt(salaireBrut)} × ${nombrePeriodes} périodes = ${fmt(revenuAnnuel)} $.`
     });
 
-    var cotisationsAnnuelles = (cotisationRRQ + cotisationAE + cotisationRQAP) * nombrePeriodes;
+    var cotisationSuppRRQ = cotisationRRQ * (1 / 6.30) + 0;
+    var deductionSuppRRQAnnuelle = cotisationSuppRRQ * nombrePeriodes;
     var deductionTravailleur = Math.min(IMPOT_QC.deductionTravailleurMax, revenuAnnuel * 0.06);
-    var deductionsAnnuelles = cotisationsAnnuelles + deductionTravailleur;
+    var deductionsAnnuelles = deductionSuppRRQAnnuelle + deductionTravailleur;
     etapes.push({
-      texte: `Déductions annualisées : cotisations (RRQ ${fmt(cotisationRRQ)} + AE ${fmt(cotisationAE)} + RQAP ${fmt(cotisationRQAP)}) × ${nombrePeriodes} = ${fmt(cotisationsAnnuelles)} $.\nDéduction pour travailleur : min(${IMPOT_QC.deductionTravailleurMax} $, 6 % × ${fmt(revenuAnnuel)}) = ${fmt(deductionTravailleur)} $.\nTotal déductions : ${fmt(deductionsAnnuelles)} $.`
+      texte: `Déductions annualisées :\n` +
+        `Cotisations supplémentaires au RRQ : ${fmt(cotisationRRQ)} × (1 % ÷ 6,30 %) × ${nombrePeriodes} = ${fmt(deductionSuppRRQAnnuelle)} $.\n` +
+        `Déduction pour travailleur : min(${IMPOT_QC.deductionTravailleurMax} $, 6 % × ${fmt(revenuAnnuel)}) = ${fmt(deductionTravailleur)} $.\n` +
+        `Total déductions : ${fmt(deductionsAnnuelles)} $.`
     });
 
     var revenuImposable = Math.max(0, revenuAnnuel - deductionsAnnuelles);
@@ -508,10 +628,16 @@ var QC = (function () {
       texte: `Impôt brut par paliers :\n${detailsPaliers.join("\n")}\nTotal : ${fmt(impotBrut)} $.`
     });
 
-    var creditImpot = credit * IMPOT_QC.tauxCredit;
-    var impotApresCredit = Math.max(0, impotBrut - creditImpot);
+    var cotisationBaseRRQ = cotisationRRQ - cotisationSuppRRQ;
+    var cotisationsBaseAnnuelles = (cotisationBaseRRQ + cotisationAE + cotisationRQAP) * nombrePeriodes;
+    var creditCotisations = cotisationsBaseAnnuelles * IMPOT_QC.tauxCredit;
+    var creditPersonnelMontant = credit * IMPOT_QC.tauxCredit;
+    var totalCredits = creditPersonnelMontant + creditCotisations;
+    var impotApresCredit = Math.max(0, impotBrut - totalCredits);
     etapes.push({
-      texte: `Crédit personnel : ${fmt(credit)} × ${(IMPOT_QC.tauxCredit * 100).toFixed(0)} % = ${fmt(creditImpot)} $.\nImpôt après crédit : ${fmt(impotBrut)} − ${fmt(creditImpot)} = ${fmt(impotApresCredit)} $.`
+      texte: `Crédit personnel : ${fmt(credit)} × ${(IMPOT_QC.tauxCredit * 100).toFixed(0)} % = ${fmt(creditPersonnelMontant)} $.\n` +
+        `Crédit pour cotisations (RRQ base + AE + RQAP) : ${fmt(cotisationsBaseAnnuelles)} × ${(IMPOT_QC.tauxCredit * 100).toFixed(0)} % = ${fmt(creditCotisations)} $.\n` +
+        `Total crédits : ${fmt(totalCredits)} $.\nImpôt après crédits : ${fmt(impotBrut)} − ${fmt(totalCredits)} = ${fmt(impotApresCredit)} $.`
     });
 
     var impotPeriode = Math.max(0, impotApresCredit / nombrePeriodes);
@@ -527,7 +653,160 @@ var QC = (function () {
 
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // Cumul annuel (YTD)
+  // Module de calcul — Gratification et paiement rétroactif
+  //
+  // Source: Revenu Québec — Guide de l'employeur, section 9.5
+  // La méthode calcule l'impôt marginal sur la gratification en comparant
+  // l'impôt avec et sans la gratification annualisée.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function calculerImpotGratification({ salaireRegulier, gratification, frequence, cotisationRRQ = 0, cotisationAE = 0, cotisationRQAP = 0, gratificationsPrecedentes = 0, creditPersonnel }) {
+    var etapes = [];
+    var nombrePeriodes = frequence === "hebdomadaire" ? 52 : frequence === "bihebdomadaire" ? 26 : 12;
+
+    etapes.push({
+      texte: `[Calcul de l'impôt sur gratification — Guide de l'employeur, section 9.5](${IMPOT_QC.source})\n` +
+        `La retenue d'impôt sur une gratification se calcule en déterminant la différence marginale d'impôt entre le salaire régulier seul et le salaire régulier augmenté de la gratification annualisée.`
+    });
+
+    var seuilGratification = IMPOT_QC.montantPersonnel;
+    var remunerationEstimative = salaireRegulier * nombrePeriodes + gratification + gratificationsPrecedentes;
+
+    if (remunerationEstimative <= seuilGratification) {
+      etapes.push({
+        texte: `La rémunération annuelle estimative (${fmt(remunerationEstimative)} $) est ≤ ${seuilGratification.toLocaleString("fr-CA")} $. Retenue d'impôt de 7 % sur la gratification.`
+      });
+      var impot7 = gratification * 0.07;
+      etapes.push({
+        texte: `**Résultat** : ${fmt(gratification)} × 7 % = **${fmt(impot7)} $**.`
+      });
+      return { impot: Math.round(impot7 * 100) / 100, etapes };
+    }
+
+    var gratificationTotale = gratification + gratificationsPrecedentes;
+    var remunerationAvecGratification = salaireRegulier + gratificationTotale / nombrePeriodes;
+    var remunerationAvecGratificationPrecedente = salaireRegulier + gratificationsPrecedentes / nombrePeriodes;
+
+    etapes.push({
+      texte: `Rémunération par période avec gratification courante + précédentes : ${fmt(salaireRegulier)} + ${fmt(gratificationTotale)} ÷ ${nombrePeriodes} = ${fmt(remunerationAvecGratification)} $.\n` +
+        `Rémunération par période avec gratifications précédentes seulement : ${fmt(salaireRegulier)} + ${fmt(gratificationsPrecedentes)} ÷ ${nombrePeriodes} = ${fmt(remunerationAvecGratificationPrecedente)} $.`
+    });
+
+    var impotAvec = calculerImpotProvincial({
+      salaireBrut: remunerationAvecGratification,
+      frequence: frequence,
+      cotisationRRQ: cotisationRRQ,
+      cotisationAE: cotisationAE,
+      cotisationRQAP: cotisationRQAP,
+      creditPersonnel: creditPersonnel
+    });
+
+    var impotSans = calculerImpotProvincial({
+      salaireBrut: remunerationAvecGratificationPrecedente,
+      frequence: frequence,
+      cotisationRRQ: cotisationRRQ,
+      cotisationAE: cotisationAE,
+      cotisationRQAP: cotisationRQAP,
+      creditPersonnel: creditPersonnel
+    });
+
+    var retenueSuppParPeriode = Math.max(0, impotAvec.impot - impotSans.impot);
+    var retenueGratification = retenueSuppParPeriode * nombrePeriodes;
+
+    etapes.push({
+      texte: `Impôt par période avec gratification : ${fmt(impotAvec.impot)} $.\n` +
+        `Impôt par période sans gratification courante : ${fmt(impotSans.impot)} $.\n` +
+        `Retenue supplémentaire par période : ${fmt(retenueSuppParPeriode)} $.`
+    });
+
+    etapes.push({
+      texte: `**Résultat** : impôt sur la gratification = ${fmt(retenueSuppParPeriode)} × ${nombrePeriodes} = **${fmt(retenueGratification)} $**.`
+    });
+
+    return {
+      impot: Math.round(retenueGratification * 100) / 100,
+      etapes
+    };
+  }
+
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Module de calcul — Gratification et paiement rétroactif (fédéral)
+  //
+  // Source: ARC — T4001 Guide de l'employeur, section « Primes et
+  // augmentations de salaire rétroactives ou montants irréguliers »
+  // https://www.canada.ca/fr/agence-revenu/services/formulaires-publications/publications/t4001/guide-employeur-retenues-paie-versements.html
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function calculerImpotFederalGratification({ salaireRegulier, gratification, frequence, cotisationRRQ = 0, cotisationAE = 0, cotisationRQAP = 0, gratificationsPrecedentes = 0, creditPersonnel }) {
+    var etapes = [];
+    var nombrePeriodes = frequence === "hebdomadaire" ? 52 : frequence === "bihebdomadaire" ? 26 : 12;
+
+    etapes.push({
+      texte: `[Calcul de l'impôt fédéral sur gratification — T4001](${IMPOT_FED.source})\n` +
+        `La retenue d'impôt fédéral sur une prime se calcule par la méthode marginale : différence d'impôt entre le salaire régulier seul et le salaire augmenté de la prime annualisée.`
+    });
+
+    var remunerationEstimative = salaireRegulier * nombrePeriodes + gratification + gratificationsPrecedentes;
+
+    if (remunerationEstimative <= 5000) {
+      var impot15 = gratification * 0.10;
+      etapes.push({
+        texte: `La rémunération annuelle estimative (${fmt(remunerationEstimative)} $) est ≤ 5 000 $. Pour le Québec, retenue de 10 % sur la prime.`
+      });
+      etapes.push({
+        texte: `**Résultat** : ${fmt(gratification)} × 10 % = **${fmt(impot15)} $**.`
+      });
+      return { impot: Math.round(impot15 * 100) / 100, etapes };
+    }
+
+    var gratificationTotale = gratification + gratificationsPrecedentes;
+    var remunerationAvecGratification = salaireRegulier + gratificationTotale / nombrePeriodes;
+    var remunerationAvecGratificationPrecedente = salaireRegulier + gratificationsPrecedentes / nombrePeriodes;
+
+    etapes.push({
+      texte: `Rémunération par période avec prime courante + précédentes : ${fmt(salaireRegulier)} + ${fmt(gratificationTotale)} ÷ ${nombrePeriodes} = ${fmt(remunerationAvecGratification)} $.\n` +
+        `Rémunération par période avec primes précédentes seulement : ${fmt(salaireRegulier)} + ${fmt(gratificationsPrecedentes)} ÷ ${nombrePeriodes} = ${fmt(remunerationAvecGratificationPrecedente)} $.`
+    });
+
+    var impotAvec = calculerImpotFederal({
+      salaireBrut: remunerationAvecGratification,
+      frequence: frequence,
+      cotisationRRQ: cotisationRRQ,
+      cotisationAE: cotisationAE,
+      cotisationRQAP: cotisationRQAP,
+      creditPersonnel: creditPersonnel
+    });
+
+    var impotSans = calculerImpotFederal({
+      salaireBrut: remunerationAvecGratificationPrecedente,
+      frequence: frequence,
+      cotisationRRQ: cotisationRRQ,
+      cotisationAE: cotisationAE,
+      cotisationRQAP: cotisationRQAP,
+      creditPersonnel: creditPersonnel
+    });
+
+    var retenueSuppParPeriode = Math.max(0, impotAvec.impot - impotSans.impot);
+    var retenueGratification = retenueSuppParPeriode * nombrePeriodes;
+
+    etapes.push({
+      texte: `Impôt fédéral par période avec prime : ${fmt(impotAvec.impot)} $.\n` +
+        `Impôt fédéral par période sans prime courante : ${fmt(impotSans.impot)} $.\n` +
+        `Retenue supplémentaire par période : ${fmt(retenueSuppParPeriode)} $.`
+    });
+
+    etapes.push({
+      texte: `**Résultat** : impôt fédéral sur la prime = ${fmt(retenueSuppParPeriode)} × ${nombrePeriodes} = **${fmt(retenueGratification)} $**.`
+    });
+
+    return {
+      impot: Math.round(retenueGratification * 100) / 100,
+      etapes
+    };
+  }
+
+
   // ═══════════════════════════════════════════════════════════════════════════
 
   function cumulBrutEmploye(emp, periodeNum) {
@@ -536,6 +815,28 @@ var QC = (function () {
       if (parseInt(key) < periodeNum) total += Number(emp.periods[key].brut || 0);
     });
     return total;
+  }
+
+  function cumulCotisationsRRQ(emp, periodeNum) {
+    var rrq1 = 0;
+    var rrq2 = 0;
+    Object.keys(emp.periods || {}).forEach(function (key) {
+      if (parseInt(key) < periodeNum) {
+        var rrqTotal = Number(emp.periods[key].rrq || 0);
+        var brut = Number(emp.periods[key].brut || 0);
+        var cumulBefore = 0;
+        Object.keys(emp.periods || {}).forEach(function (k2) {
+          if (parseInt(k2) < parseInt(key)) cumulBefore += Number(emp.periods[k2].brut || 0);
+        });
+        var brutAuDessusMGA = Math.max(0, brut - Math.max(0, RRQ.mga - cumulBefore));
+        var cotisableRRQ2 = Math.min(brutAuDessusMGA, Math.max(0, RRQ.mgap - Math.max(cumulBefore, RRQ.mga)));
+        var partRRQ2 = cotisableRRQ2 * RRQ.tauxRRQ2;
+        if (partRRQ2 > rrqTotal) partRRQ2 = rrqTotal;
+        rrq2 += partRRQ2;
+        rrq1 += Math.max(0, rrqTotal - partRRQ2);
+      }
+    });
+    return { rrq1: rrq1, rrq2: rrq2 };
   }
 
   function empTotals(period) {
@@ -555,12 +856,13 @@ var QC = (function () {
       aeEmp: Number(period.aeEmp || 0),
       rqapEmp: Number(period.rqapEmp || 0),
       fss: Number(period.fss || 0),
-      cnesst: Number(period.cnesst || 0)
+      cnesst: Number(period.cnesst || 0),
+      cnt: Number(period.cnt || 0)
     };
   }
 
   function sumTotals(list) {
-    var s = { brut: 0, extrasRev: 0, pourboires: 0, impotCa: 0, impotQc: 0, rrq: 0, ae: 0, rqap: 0, extrasRet: 0, rrqEmp: 0, aeEmp: 0, rqapEmp: 0, fss: 0, cnesst: 0 };
+    var s = { brut: 0, extrasRev: 0, pourboires: 0, impotCa: 0, impotQc: 0, rrq: 0, ae: 0, rqap: 0, extrasRet: 0, rrqEmp: 0, aeEmp: 0, rqapEmp: 0, fss: 0, cnesst: 0, cnt: 0 };
     list.forEach(function (t) { for (var k in s) s[k] += t[k]; });
     return s;
   }
@@ -600,6 +902,7 @@ var QC = (function () {
     RRQ: RRQ,
     FSS: FSS,
     CNESST: CNESST,
+    CNT: CNT,
     IMPOT_FED: IMPOT_FED,
     IMPOT_QC: IMPOT_QC,
 
@@ -608,10 +911,14 @@ var QC = (function () {
     calculerRRQ: calculerRRQ,
     calculerFSS: calculerFSS,
     calculerCNESST: calculerCNESST,
+    calculerCNT: calculerCNT,
     calculerImpotFederal: calculerImpotFederal,
     calculerImpotProvincial: calculerImpotProvincial,
+    calculerImpotGratification: calculerImpotGratification,
+    calculerImpotFederalGratification: calculerImpotFederalGratification,
 
     cumulBrutEmploye: cumulBrutEmploye,
+    cumulCotisationsRRQ: cumulCotisationsRRQ,
     computeYTD: computeYTD,
     computeExtraYTD: computeExtraYTD
   };

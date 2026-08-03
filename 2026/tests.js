@@ -41,6 +41,14 @@ window.loadTestData = function () {
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Automated tests — run with: runTests() in the browser console
+//
+// Examples marked "guide QC" come from the Revenu Québec publication:
+// TP-1015.G (2026-01) — Guide de l'employeur — Retenues à la source et cotisations
+// https://www.revenuquebec.ca/documents/fr/formulaires/tp/TP-1015.G%282026-01%29.pdf
+//
+// Examples marked "guide CA" come from the CRA publication:
+// T4001 — Guide de l'employeur — Les retenues sur la paie et les versements
+// https://www.canada.ca/fr/agence-revenu/services/formulaires-publications/publications/t4001/guide-employeur-retenues-paie-versements.html
 // ═══════════════════════════════════════════════════════════════════════════
 
 window.runTests = function () {
@@ -148,6 +156,44 @@ window.runTests = function () {
     assert("RRQ employee weekly", r.employe, +(cotisable * 0.063).toFixed(2));
   })();
 
+  (function () {
+    // Discontinu hourly: exemption = 1.75 * hours
+    // Example: 40 hours at $25/h = $1000 gross, exemption = 1.75*40 = $70
+    var r = QC.calculerRRQ({ salaireBrut: 1000, frequence: "bihebdomadaire", cumulBrutAnnuel: 0, typeEmploi: "discontinuHeure", heures: 40 });
+    var exemption = 1.75 * 40;
+    var cotisable = 1000 - exemption;
+    assert("RRQ discontinu hourly", r.employe, +(cotisable * 0.063).toFixed(2));
+  })();
+
+  (function () {
+    // Discontinu daily: exemption = 14.58 * days
+    // Example from guide QC (section 4.4.2, p.48): 2 days at $60/day = $120 gross, exemption = 14.58*2 = $29.16
+    var r = QC.calculerRRQ({ salaireBrut: 120, frequence: "bihebdomadaire", cumulBrutAnnuel: 0, typeEmploi: "discontinuJour", jours: 2 });
+    var exemption = 14.58 * 2;
+    var cotisable = 120 - exemption;
+    assert("RRQ discontinu daily (guide QC 4.4.2 p.48)", r.employe, +(cotisable * 0.063).toFixed(2));
+  })();
+
+  (function () {
+    // Prorated annual max: 4 months cotisables (guide QC section 4.5.1)
+    // cotisationMaxRRQ1 prorated = 4479.30 * 4/12 = 1493.10
+    // cotisationMaxRRQ2 prorated = 416 * 4/12 = 138.67
+    // Use a high salary so we'd exceed the max without prorating
+    var r = QC.calculerRRQ({ salaireBrut: 80000, frequence: "mensuel", cumulBrutAnnuel: 0, moisCotisablesRRQ: 4 });
+    var maxRRQ1 = +(4479.30 * 4 / 12).toFixed(2);
+    var maxRRQ2 = +(416 * 4 / 12).toFixed(2);
+    var maxTotal = +(maxRRQ1 + maxRRQ2).toFixed(2);
+    assert("RRQ prorated max (4 months)", r.employe, maxTotal);
+  })();
+
+  (function () {
+    // Full year (12 months) should not prorate
+    var r = QC.calculerRRQ({ salaireBrut: 2280, frequence: "bihebdomadaire", cumulBrutAnnuel: 0, moisCotisablesRRQ: 12 });
+    var exemption = 3500 / 26;
+    var cotisable = 2280 - exemption;
+    assert("RRQ 12 months (no prorating)", r.employe, +(cotisable * 0.063).toFixed(2));
+  })();
+
   // ─── FSS ───────────────────────────────────────────────────────────────────
 
   (function () {
@@ -177,22 +223,22 @@ window.runTests = function () {
   (function () {
     // Basic case: biweekly 2280, no deductions, default credit
     var r = QC.calculerImpotFederal({ salaireBrut: 2280, frequence: "bihebdomadaire", cotisationRRQ: 0, cotisationAE: 0, cotisationRQAP: 0 });
-    // Annualized: 2280*26 = 59280. Taxable = 59280.
+    // Annualized: 2280*26 = 59280. F5A = 0. Taxable = 59280.
     // Bracket 1: 58523 × 14% = 8193.22. Bracket 2: 757 × 20.5% = 155.19. Total brut = 8348.41
-    // Credit: 16452 × 14% = 2303.28. After credit: 6045.13
-    // Abattement QC: 6045.13 × 16.5% = 997.45. After: 5047.68
-    // Per period: 5047.68/26 = 194.14
-    assert("Fed tax basic", r.impot, 194.14);
+    // K1: 16452 × 14% = 2303.28. K2: 0. K3: 1368 × 14% = 191.52. Total credits: 2494.80
+    // After credits: 5853.61. Abattement QC: 5853.61 × 16.5% = 965.85. After: 4887.76
+    // Per period: 4887.76/26 = 187.99
+    assert("Fed tax basic", r.impot, 187.99);
   })();
 
   (function () {
-    // With deductions
+    // With cotisations — only supplementary RRQ deducted from income, base as K2 credit
     var r = QC.calculerImpotFederal({ salaireBrut: 2280, frequence: "bihebdomadaire", cotisationRRQ: 135, cotisationAE: 29.64, cotisationRQAP: 9.80 });
-    // Annualized income: 59280. Deductions annualized: (135+29.64+9.80)*26 = 4535.44
-    // Taxable: 59280 - 4535.44 = 54744.56. All in first bracket (< 58523)
-    // Brut: 54744.56 × 14% = 7664.24. Credit: 2303.28. After: 5360.96
-    // Abattement: 5360.96 × 16.5% = 884.56. After: 4476.40. Per period: 172.17
-    assert("Fed tax with deductions", r.impot, 172.17);
+    // F5A = 135*(1/6.30)*26 = 557.14. Taxable: 59280-557.14 = 58722.86
+    // Brackets: 58523*14%=8193.22 + 199.86*20.5%=40.97 = 8234.19
+    // K1: 2303.28. K2: (113.57+29.64+9.80)*26*14% = 556.96. K3: 191.52. Total: 3051.76
+    // After credits: 5182.43. Abattement: 855.10. After: 4327.33. Per period: 166.44
+    assert("Fed tax with deductions", r.impot, 166.44);
   })();
 
   (function () {
@@ -204,9 +250,9 @@ window.runTests = function () {
   (function () {
     // Custom credit
     var r = QC.calculerImpotFederal({ salaireBrut: 2280, frequence: "bihebdomadaire", creditPersonnel: 20000 });
-    // Same as basic but credit = 20000 × 14% = 2800. Brut = 8348.41. After credit: 5548.41
-    // Abattement: 5548.41 × 16.5% = 915.49. After: 4632.92. Per period: 178.19
-    assert("Fed tax custom credit", r.impot, 178.19);
+    // Same as basic but K1 = 20000 × 14% = 2800. K3 = 191.52. Total credits: 2991.52
+    // Brut = 8348.41. After credits: 5356.89. Abattement: 883.89. After: 4473.00. Per period: 172.04
+    assert("Fed tax custom credit", r.impot, 172.04);
   })();
 
   // ─── Impôt provincial ──────────────────────────────────────────────────────
@@ -222,10 +268,12 @@ window.runTests = function () {
 
   (function () {
     var r = QC.calculerImpotProvincial({ salaireBrut: 2280, frequence: "bihebdomadaire", cotisationRRQ: 135, cotisationAE: 29.64, cotisationRQAP: 9.80 });
-    // Annualized: 59280. Cotisations: 4535.44. Ded travailleur: 1450. Total ded: 5985.44
-    // Taxable: 59280 - 5985.44 = 53294.56. All in bracket 1 (< 54345)
-    // Brut: 53294.56 × 14% = 7461.24. Credit: 2653.28. After: 4807.96. Per period: 184.92
-    assert("QC tax with deductions", r.impot, 184.92);
+    // Annualized: 59280. SuppRRQ = 135*(1/6.30)*26 = 557.14. Ded travailleur: 1450. Total ded: 2007.14
+    // Taxable: 59280 - 2007.14 = 57272.86
+    // Brackets: 54345*14%=7608.30 + 2927.86*19%=556.29 = 8164.59
+    // Credit personnel: 2653.28. Credit cotisations base: (113.57+29.64+9.80)*26*14% = 556.96
+    // Total credits: 3210.24. After: 4954.35. Per period: 190.55
+    assert("QC tax with deductions", r.impot, 190.55);
   })();
 
   // ─── Utility functions ─────────────────────────────────────────────────────
@@ -289,6 +337,174 @@ window.runTests = function () {
     assert("RQAP max employer", QC.RQAP.cotisationMaxEmployeur, QC.RQAP.revenusAssurableMax * QC.RQAP.tauxEmployeur);
     assert("AE max employee", QC.AE.cotisationMaxEmploye, QC.AE.revenusAssurableMax * QC.AE.tauxEmploye);
     assert("AE max employer", QC.AE.cotisationMaxEmployeur, QC.AE.revenusAssurableMax * QC.AE.tauxEmployeur);
+  })();
+
+  // ─── RRQ annual cap from cumulated cotisations (guide QC section 4.1, p.43) ───
+
+  (function () {
+    // Employee paid 4000 biweekly, period 19, cumulBrut = 72000
+    // With cotisation cap: cotisationMaxRRQ1 (4479.30) - cumulCotisationsRRQ1 (4383.36) = 95.94
+    // RRQ2: brutAuDessusMGA = 4000 - (74600-72000) = 1400. cotisationRRQ2 = 1400*4% = 56.00
+    // Total = 95.94 + 56.00 = 151.94
+    var r = QC.calculerRRQ({
+      salaireBrut: 4000,
+      frequence: "bihebdomadaire",
+      cumulBrutAnnuel: 72000,
+      cumulCotisationsRRQ1: 4383.36,
+      cumulCotisationsRRQ2: 0
+    });
+    assert("RRQ capped by cumulated cotisations (guide QC 4.1 p.43)", r.employe, 151.94);
+  })();
+
+  (function () {
+    // RRQ2 cap: period 22, cumulBrut=84000, salary 4000 (guide QC section 4.1, p.44)
+    // brutAuDessusMGA = 4000 - max(0, 74600-84000) = 4000
+    // cotisableRRQ2 = min(4000, max(0, 85000-max(84000,74600))) = min(4000, 1000) = 1000
+    // cotisationRRQ2 = 1000*0.04 = 40. But cap: max(416) - cumul(376) = 40. OK, not capped.
+    var r = QC.calculerRRQ({
+      salaireBrut: 4000,
+      frequence: "bihebdomadaire",
+      cumulBrutAnnuel: 84000,
+      cumulCotisationsRRQ1: 4479.30,
+      cumulCotisationsRRQ2: 376,
+      moisCotisablesRRQ: 12
+    });
+    // RRQ1 should be 0 (already at max). RRQ2 = 40.
+    assert("RRQ2 capped at 40 (guide QC 4.1 p.44)", r.employe, 40);
+  })();
+
+  // ─── CNT (cotisation relative aux normes du travail) ───────────────────────
+
+  (function () {
+    var r = QC.calculerCNT({ salaireBrut: 2280, cumulBrutAnnuel: 0 });
+    assert("CNT basic", r.employeur, +(2280 * 0.0006).toFixed(2));
+  })();
+
+  (function () {
+    var r = QC.calculerCNT({ salaireBrut: 5000, cumulBrutAnnuel: 100000 });
+    // Only 3000 remains assujetti (103000 - 100000)
+    assert("CNT near cap", r.employeur, +(3000 * 0.0006).toFixed(2));
+  })();
+
+  (function () {
+    var r = QC.calculerCNT({ salaireBrut: 2000, cumulBrutAnnuel: 104000 });
+    assert("CNT past cap", r.employeur, 0);
+  })();
+
+  // ─── Gratification ─────────────────────────────────────────────────────────
+
+  (function () {
+    // Below threshold (18952) — should return 7% of gratification
+    var r = QC.calculerImpotGratification({
+      salaireRegulier: 300,
+      gratification: 500,
+      frequence: "hebdomadaire",
+      cotisationRRQ: 0, cotisationAE: 0, cotisationRQAP: 0
+    });
+    // Estimative: 300*52 + 500 = 16100 <= 18952
+    assert("Gratification below threshold (7%)", r.impot, +(500 * 0.07).toFixed(2));
+  })();
+
+  (function () {
+    // Above threshold — marginal method
+    // Salary 540/week, gratification 2500, hebdomadaire
+    var r = QC.calculerImpotGratification({
+      salaireRegulier: 540,
+      gratification: 2500,
+      frequence: "hebdomadaire",
+      cotisationRRQ: 0, cotisationAE: 0, cotisationRQAP: 0,
+      gratificationsPrecedentes: 0
+    });
+    // Estimative: 540*52 + 2500 = 30580 > 18952 → marginal method
+    // impotAvec uses salaire = 540 + 2500/52 = 588.08
+    // impotSans uses salaire = 540
+    var impotAvec = QC.calculerImpotProvincial({ salaireBrut: 588.08, frequence: "hebdomadaire", cotisationRRQ: 0, cotisationAE: 0, cotisationRQAP: 0 });
+    var impotSans = QC.calculerImpotProvincial({ salaireBrut: 540, frequence: "hebdomadaire", cotisationRRQ: 0, cotisationAE: 0, cotisationRQAP: 0 });
+    var expected = Math.round((impotAvec.impot - impotSans.impot) * 52 * 100) / 100;
+    assert("Gratification marginal method (guide QC 9.5 p.79)", r.impot, expected);
+  })();
+
+  // ─── Gratification fédérale (guide CA — T4001) ─────────────────────────────
+
+  (function () {
+    // Below 5000$ threshold — 10% for Quebec
+    var r = QC.calculerImpotFederalGratification({
+      salaireRegulier: 80,
+      gratification: 200,
+      frequence: "hebdomadaire",
+      cotisationRRQ: 0, cotisationAE: 0, cotisationRQAP: 0
+    });
+    // Estimative: 80*52 + 200 = 4360 <= 5000
+    assert("Fed gratification below 5000$ (10%)", r.impot, +(200 * 0.10).toFixed(2));
+  })();
+
+  (function () {
+    // Above 5000$ — marginal method (guide CA example 1: 400$/week + 300$ bonus)
+    var r = QC.calculerImpotFederalGratification({
+      salaireRegulier: 400,
+      gratification: 300,
+      frequence: "hebdomadaire",
+      cotisationRRQ: 0, cotisationAE: 0, cotisationRQAP: 0,
+      gratificationsPrecedentes: 0
+    });
+    // Estimative: 400*52 + 300 = 21100 > 5000 → marginal method
+    // impotAvec uses salaire = 400 + 300/52 = 405.77
+    // impotSans uses salaire = 400
+    var impotAvec = QC.calculerImpotFederal({ salaireBrut: 400 + 300/52, frequence: "hebdomadaire", cotisationRRQ: 0, cotisationAE: 0, cotisationRQAP: 0 });
+    var impotSans = QC.calculerImpotFederal({ salaireBrut: 400, frequence: "hebdomadaire", cotisationRRQ: 0, cotisationAE: 0, cotisationRQAP: 0 });
+    var expected = Math.round((impotAvec.impot - impotSans.impot) * 52 * 100) / 100;
+    assert("Fed gratification marginal method (guide CA T4001 ex.1)", r.impot, expected);
+  })();
+
+  (function () {
+    // Second bonus in the year (guide CA example 2: 400$/week, 300$ prior bonus, 780$ new bonus)
+    var r = QC.calculerImpotFederalGratification({
+      salaireRegulier: 400,
+      gratification: 780,
+      frequence: "hebdomadaire",
+      cotisationRRQ: 0, cotisationAE: 0, cotisationRQAP: 0,
+      gratificationsPrecedentes: 300
+    });
+    // remunerationAvec = 400 + (780+300)/52 = 400 + 20.77 = 420.77
+    // remunerationSans = 400 + 300/52 = 400 + 5.77 = 405.77
+    var impotAvec = QC.calculerImpotFederal({ salaireBrut: 400 + 1080/52, frequence: "hebdomadaire", cotisationRRQ: 0, cotisationAE: 0, cotisationRQAP: 0 });
+    var impotSans = QC.calculerImpotFederal({ salaireBrut: 400 + 300/52, frequence: "hebdomadaire", cotisationRRQ: 0, cotisationAE: 0, cotisationRQAP: 0 });
+    var expected = Math.round((impotAvec.impot - impotSans.impot) * 52 * 100) / 100;
+    assert("Fed gratification 2nd bonus (guide CA T4001 ex.2)", r.impot, expected);
+  })();
+
+  (function () {
+    // Retroactive salary increase (guide CA example 3: 440→460$/week, 12 weeks retro = 240$)
+    // Same marginal method: impot(460) - impot(440), times 12 weeks
+    var r = QC.calculerImpotFederalGratification({
+      salaireRegulier: 460,
+      gratification: 240,
+      frequence: "hebdomadaire",
+      cotisationRRQ: 0, cotisationAE: 0, cotisationRQAP: 0,
+      gratificationsPrecedentes: 0
+    });
+    // remunerationAvec = 460 + 240/52 = 464.62
+    // remunerationSans = 460
+    var impotAvec = QC.calculerImpotFederal({ salaireBrut: 460 + 240/52, frequence: "hebdomadaire", cotisationRRQ: 0, cotisationAE: 0, cotisationRQAP: 0 });
+    var impotSans = QC.calculerImpotFederal({ salaireBrut: 460, frequence: "hebdomadaire", cotisationRRQ: 0, cotisationAE: 0, cotisationRQAP: 0 });
+    var expected = Math.round((impotAvec.impot - impotSans.impot) * 52 * 100) / 100;
+    assert("Fed retroactive salary increase (guide CA T4001 ex.3)", r.impot, expected);
+  })();
+
+  // ─── cumulCotisationsRRQ helper ────────────────────────────────────────────
+
+  (function () {
+    var emp = {
+      periods: {
+        "1": { brut: "4000", rrq: "243.60" },
+        "2": { brut: "4000", rrq: "243.60" },
+        "3": { brut: "4000", rrq: "243.60" }
+      }
+    };
+    var c = QC.cumulCotisationsRRQ(emp, 3);
+    // Periods 1 and 2: all below MGA (74600), so all is RRQ1
+    assert("cumulCotisationsRRQ rrq1", c.rrq1, 487.20);
+    assert("cumulCotisationsRRQ rrq2", c.rrq2, 0);
   })();
 
   // ─── Results ───────────────────────────────────────────────────────────────
